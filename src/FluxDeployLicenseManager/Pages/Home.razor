@@ -84,7 +84,7 @@ else
     private (bool Valid, string? Error, LicensePayload? Payload, bool Expired)? _verifyResult;
     private bool _verifying;
 
-    private static readonly string[] AllFeatures = { "pxe", "multicast", "autopilot", "wim-customize", "oem-catalogs", "mcc" };
+    private static readonly string[] AllFeatures = { "autopilot", "mcc" };
 
     protected override async Task OnInitializedAsync()
     {
