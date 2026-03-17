@@ -1,0 +1,162 @@
+@page "/setup"
+@inject GitHubStorageService GitHub
+@inject NavigationManager Nav
+
+<div class="row justify-content-center mt-4">
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-body p-4">
+                <div class="text-center mb-4">
+                    <i class="bi bi-github text-primary" style="font-size: 2.5rem;"></i>
+                    <h3 class="mt-2">Connect to GitHub</h3>
+                    <p class="text-body-secondary">
+                        License records are stored in a GitHub repository. Create a
+                        <strong>private repo</strong> and generate a
+                        <strong>Personal Access Token</strong> with <code>repo</code> scope.
+                    </p>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="alert alert-danger">@_error</div>
+                }
+                @if (!string.IsNullOrEmpty(_success))
+                {
+                    <div class="alert alert-success">@_success</div>
+                }
+
+                <div class="mb-3">
+                    <label class="form-label">GitHub Personal Access Token</label>
+                    <input type="password" class="form-control" @bind="_token" @bind:event="oninput"
+                           placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+                    <div class="form-text">
+                        Fine-grained token with <strong>Contents: Read and write</strong> on the target repo.
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-5">
+                        <label class="form-label">Repository Owner</label>
+                        <input type="text" class="form-control" @bind="_owner" @bind:event="oninput"
+                               placeholder="your-username" />
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Repository Name</label>
+                        <input type="text" class="form-control" @bind="_repo" @bind:event="oninput"
+                               placeholder="fluxdeploy-licenses" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">File Path</label>
+                        <input type="text" class="form-control" @bind="_filePath"
+                               placeholder="licenses.json" />
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary" @onclick="TestConnection" disabled="@_testing">
+                        @if (_testing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <i class="bi bi-plug me-1"></i>Test Connection
+                    </button>
+                    <button class="btn btn-primary" @onclick="SaveAndContinue" disabled="@(!_tested || _saving)">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Save & Continue
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _token = "";
+    private string _owner = "";
+    private string _repo = "";
+    private string _filePath = "licenses.json";
+    private string? _error;
+    private string? _success;
+    private bool _testing;
+    private bool _tested;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GitHub.LoadConfigAsync();
+        if (GitHub.Config != null)
+        {
+            _token = GitHub.Config.Token;
+            _owner = GitHub.Config.Owner;
+            _repo = GitHub.Config.Repo;
+            _filePath = GitHub.Config.FilePath;
+        }
+    }
+
+    private async Task TestConnection()
+    {
+        _error = null;
+        _success = null;
+        _tested = false;
+
+        if (string.IsNullOrWhiteSpace(_token) || string.IsNullOrWhiteSpace(_owner) || string.IsNullOrWhiteSpace(_repo))
+        {
+            _error = "All fields are required.";
+            return;
+        }
+
+        _testing = true;
+        try
+        {
+            await GitHub.SaveConfigAsync(new GitHubConfig
+            {
+                Token = _token.Trim(),
+                Owner = _owner.Trim(),
+                Repo = _repo.Trim(),
+                FilePath = string.IsNullOrWhiteSpace(_filePath) ? "licenses.json" : _filePath.Trim()
+            });
+
+            var ok = await GitHub.TestConnectionAsync();
+            if (ok)
+            {
+                _success = "Connected successfully.";
+                _tested = true;
+            }
+            else
+            {
+                _error = "Connection failed. Check your token and repo name.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Connection failed: {ex.Message}";
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+
+    private async Task SaveAndContinue()
+    {
+        _saving = true;
+        try
+        {
+            await GitHub.SaveConfigAsync(new GitHubConfig
+            {
+                Token = _token.Trim(),
+                Owner = _owner.Trim(),
+                Repo = _repo.Trim(),
+                FilePath = string.IsNullOrWhiteSpace(_filePath) ? "licenses.json" : _filePath.Trim()
+            });
+            Nav.NavigateTo("/");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

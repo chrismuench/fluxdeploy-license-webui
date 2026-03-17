@@ -1,0 +1,699 @@
+@page "/"
+@page "/{TabName?}"
+@inject LicenseService License
+@inject GitHubStorageService GitHub
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+@if (!_ready)
+{
+    <div class="text-center py-5"><div class="spinner-border"></div></div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="h3 mb-0">License Manager</h1>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => Nav.NavigateTo("/setup"))">
+            <i class="bi bi-github me-1"></i>GitHub Settings
+        </button>
+    </div>
+
+    <ul class="nav nav-tabs mb-4">
+        <li class="nav-item">
+            <a class="nav-link @(ActiveTab == "generate" ? "active" : "")" href="/generate">
+                <i class="bi bi-plus-circle me-1"></i>Generate
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link @(ActiveTab == "licenses" ? "active" : "")" href="/licenses">
+                <i class="bi bi-list-ul me-1"></i>Licenses
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link @(ActiveTab == "verify" ? "active" : "")" href="/verify">
+                <i class="bi bi-shield-check me-1"></i>Verify
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link @(ActiveTab == "settings" ? "active" : "")" href="/settings">
+                <i class="bi bi-gear me-1"></i>Keys
+            </a>
+        </li>
+    </ul>
+
+    @switch (ActiveTab)
+    {
+        case "generate": @RenderGenerateTab() break;
+        case "licenses": @RenderLicensesTab() break;
+        case "verify": @RenderVerifyTab() break;
+        case "settings": @RenderSettingsTab() break;
+    }
+}
+
+@code {
+    [Parameter] public string? TabName { get; set; }
+    private string ActiveTab => (TabName ?? "generate").ToLowerInvariant();
+
+    private bool _ready;
+
+    // Private key (held in memory only, loaded from file each session)
+    private string? _privateKeyPem;
+    private string? _publicKeyPem;
+
+    // Generate tab
+    private string _org = "";
+    private string _licenseType = "time";
+    private int _durationDays = 365;
+    private int _maxRelays = 0;
+    private int _maxRecipes = 0;
+    private HashSet<string> _selectedFeatures = new();
+    private string _notes = "";
+    private string? _generatedKey;
+    private string? _generatedLicenseId;
+    private string? _generateError;
+    private bool _generating;
+
+    // Licenses tab
+    private List<IssuedLicenseRecord> _licenses = new();
+    private string _licenseSearch = "";
+    private string _licenseFilter = "all";
+    private bool _licensesLoading;
+
+    // Verify tab
+    private string _verifyKeyInput = "";
+    private (bool Valid, string? Error, LicensePayload? Payload, bool Expired)? _verifyResult;
+    private bool _verifying;
+
+    private static readonly string[] AllFeatures = { "pxe", "multicast", "autopilot", "wim-customize", "oem-catalogs", "mcc" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GitHub.LoadConfigAsync();
+        if (!GitHub.IsConfigured)
+        {
+            Nav.NavigateTo("/setup");
+            return;
+        }
+        _ready = true;
+        await LoadTabData();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_ready) await LoadTabData();
+    }
+
+    private async Task LoadTabData()
+    {
+        if (ActiveTab == "licenses")
+        {
+            _licensesLoading = true;
+            StateHasChanged();
+            _licenses = await License.GetAllLicensesAsync();
+            _licensesLoading = false;
+        }
+    }
+
+    // ─── Generate Tab ───
+
+    private RenderFragment RenderGenerateTab() => __builder =>
+    {
+        <div class="row">
+            <div class="col-lg-7">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3">Generate License Key</h5>
+
+                        @if (string.IsNullOrEmpty(_privateKeyPem))
+                        {
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle me-1"></i>
+                                Load your private key first. Go to the <a href="/settings">Keys</a> tab.
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(_generateError))
+                        {
+                            <div class="alert alert-danger">@_generateError</div>
+                        }
+
+                        <div class="mb-3">
+                            <label class="form-label">Organization <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" @bind="_org" @bind:event="oninput"
+                                   placeholder="e.g. Contoso IT Services" />
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">License Type</label>
+                                <div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" id="typeTime" value="time"
+                                               checked="@(_licenseType == "time")" @onchange="@(() => _licenseType = "time")" />
+                                        <label class="form-check-label" for="typeTime">Time-based</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" id="typePerpetual" value="perpetual"
+                                               checked="@(_licenseType == "perpetual")" @onchange="@(() => _licenseType = "perpetual")" />
+                                        <label class="form-check-label" for="typePerpetual">Perpetual</label>
+                                    </div>
+                                </div>
+                            </div>
+                            @if (_licenseType == "time")
+                            {
+                                <div class="col-md-6">
+                                    <label class="form-label">Duration (days)</label>
+                                    <input type="number" class="form-control" @bind="_durationDays" min="1" max="36500" />
+                                </div>
+                            }
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Max Relay Sites</label>
+                                <input type="number" class="form-control" @bind="_maxRelays" min="0" max="10000" />
+                                <div class="form-text">0 = unlimited</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Max Recipes</label>
+                                <input type="number" class="form-control" @bind="_maxRecipes" min="0" max="10000" />
+                                <div class="form-text">0 = unlimited</div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Features</label>
+                            <div class="form-text mb-2">Leave all unchecked to enable all features.</div>
+                            <div class="row">
+                                @foreach (var feature in AllFeatures)
+                                {
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="@($"feat-{feature}")"
+                                                   checked="@_selectedFeatures.Contains(feature)"
+                                                   @onchange="@(e => ToggleFeature(feature, (bool)(e.Value ?? false)))" />
+                                            <label class="form-check-label" for="@($"feat-{feature}")">@feature</label>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Notes <span class="text-body-secondary">(optional)</span></label>
+                            <textarea class="form-control" rows="2" @bind="_notes"></textarea>
+                        </div>
+
+                        <button class="btn btn-primary" @onclick="OnGenerate"
+                                disabled="@(_generating || string.IsNullOrEmpty(_privateKeyPem))">
+                            @if (_generating)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <i class="bi bi-plus-circle me-1"></i>Generate License Key
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-5">
+                @if (_generatedKey != null)
+                {
+                    <div class="card border-success">
+                        <div class="card-body">
+                            <h5 class="card-title text-success">
+                                <i class="bi bi-check-circle me-1"></i>License Generated
+                            </h5>
+                            <p class="mb-1"><strong>License ID:</strong> @_generatedLicenseId</p>
+                            <div class="mt-3">
+                                <label class="form-label fw-semibold">License Key</label>
+                                <div class="position-relative">
+                                    <pre class="bg-dark text-light p-3 rounded" style="font-size: 0.75rem; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">@_generatedKey</pre>
+                                    <button class="btn btn-sm btn-outline-light position-absolute top-0 end-0 m-2"
+                                            @onclick="CopyGeneratedKey" title="Copy to clipboard">
+                                        <i class="bi bi-clipboard"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="card">
+                        <div class="card-body text-center text-body-secondary py-5">
+                            <i class="bi bi-key" style="font-size: 2rem;"></i>
+                            <p class="mt-2 mb-0">Generated license key will appear here.</p>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    };
+
+    private void ToggleFeature(string feature, bool isChecked)
+    {
+        if (isChecked) _selectedFeatures.Add(feature);
+        else _selectedFeatures.Remove(feature);
+    }
+
+    private async Task OnGenerate()
+    {
+        _generateError = null;
+        _generatedKey = null;
+
+        if (string.IsNullOrWhiteSpace(_org)) { _generateError = "Organization name is required."; return; }
+        if (string.IsNullOrEmpty(_privateKeyPem)) { _generateError = "Load your private key first."; return; }
+
+        _generating = true;
+        try
+        {
+            var (key, licenseId) = await License.GenerateLicenseAsync(
+                _privateKeyPem, _org.Trim(), _licenseType, _durationDays, _maxRelays, _maxRecipes,
+                _selectedFeatures.ToArray(), string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim());
+
+            _generatedKey = key;
+            _generatedLicenseId = licenseId;
+        }
+        catch (Exception ex)
+        {
+            _generateError = $"Generation failed: {ex.Message}";
+        }
+        finally
+        {
+            _generating = false;
+        }
+    }
+
+    private async Task CopyGeneratedKey()
+    {
+        if (_generatedKey != null)
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _generatedKey);
+    }
+
+    // ─── Licenses Tab ───
+
+    private RenderFragment RenderLicensesTab() => __builder =>
+    {
+        var total = _licenses.Count;
+        var active = _licenses.Count(l => !l.IsRevoked && (l.ExpiresAt == null || l.ExpiresAt > DateTime.UtcNow));
+        var expired = _licenses.Count(l => !l.IsRevoked && l.ExpiresAt != null && l.ExpiresAt <= DateTime.UtcNow);
+        var revoked = _licenses.Count(l => l.IsRevoked);
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card text-center"><div class="card-body py-3">
+                    <div class="h4 mb-0">@total</div><small class="text-body-secondary">Total</small>
+                </div></div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center"><div class="card-body py-3">
+                    <div class="h4 mb-0 text-success">@active</div><small class="text-body-secondary">Active</small>
+                </div></div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center"><div class="card-body py-3">
+                    <div class="h4 mb-0 text-warning">@expired</div><small class="text-body-secondary">Expired</small>
+                </div></div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center"><div class="card-body py-3">
+                    <div class="h4 mb-0 text-danger">@revoked</div><small class="text-body-secondary">Revoked</small>
+                </div></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex gap-2 mb-3">
+                    <input type="text" class="form-control" placeholder="Search by ID or organization..."
+                           @bind="_licenseSearch" @bind:event="oninput" style="max-width: 350px;" />
+                    <select class="form-select" style="max-width: 150px;" @bind="_licenseFilter">
+                        <option value="all">All</option>
+                        <option value="active">Active</option>
+                        <option value="expired">Expired</option>
+                        <option value="revoked">Revoked</option>
+                    </select>
+                    <button class="btn btn-outline-secondary btn-sm ms-auto" @onclick="RefreshLicenses" disabled="@_licensesLoading">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+
+                @if (_licensesLoading)
+                {
+                    <div class="text-center py-4"><div class="spinner-border"></div></div>
+                }
+                else
+                {
+                    var filtered = FilterLicenses();
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>License ID</th>
+                                    <th>Organization</th>
+                                    <th>Type</th>
+                                    <th>Issued</th>
+                                    <th>Expires</th>
+                                    <th>Features</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (!filtered.Any())
+                                {
+                                    <tr><td colspan="8" class="text-center text-body-secondary py-4">No licenses found.</td></tr>
+                                }
+                                @foreach (var lic in filtered)
+                                {
+                                    var status = GetLicenseStatus(lic);
+                                    <tr>
+                                        <td><code>@lic.LicenseId</code></td>
+                                        <td>@lic.OrganizationName</td>
+                                        <td><span class="badge @(lic.LicenseType == "perpetual" ? "text-bg-primary" : "text-bg-secondary")">@lic.LicenseType</span></td>
+                                        <td>@lic.IssuedAt.ToString("yyyy-MM-dd")</td>
+                                        <td>@(lic.ExpiresAt?.ToString("yyyy-MM-dd") ?? "Never")</td>
+                                        <td>
+                                            @if (lic.Features is { Length: > 0 })
+                                            {
+                                                @foreach (var f in lic.Features)
+                                                {
+                                                    <span class="badge text-bg-info me-1" style="font-size: 0.65rem;">@f</span>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="text-body-secondary">All</span>
+                                            }
+                                        </td>
+                                        <td><span class="badge @status.BadgeClass">@status.Label</span></td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-secondary me-1" title="Copy key"
+                                                    @onclick="@(() => CopyKey(lic.KeyData))">
+                                                <i class="bi bi-clipboard"></i>
+                                            </button>
+                                            @if (!lic.IsRevoked)
+                                            {
+                                                <button class="btn btn-sm btn-outline-danger" title="Revoke"
+                                                        @onclick="@(() => OnRevoke(lic.LicenseId))">
+                                                    <i class="bi bi-x-circle"></i>
+                                                </button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    };
+
+    private List<IssuedLicenseRecord> FilterLicenses()
+    {
+        var filtered = _licenses.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_licenseSearch))
+        {
+            var s = _licenseSearch.Trim();
+            filtered = filtered.Where(l =>
+                l.LicenseId.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                l.OrganizationName.Contains(s, StringComparison.OrdinalIgnoreCase));
+        }
+        filtered = _licenseFilter switch
+        {
+            "active" => filtered.Where(l => !l.IsRevoked && (l.ExpiresAt == null || l.ExpiresAt > DateTime.UtcNow)),
+            "expired" => filtered.Where(l => !l.IsRevoked && l.ExpiresAt != null && l.ExpiresAt <= DateTime.UtcNow),
+            "revoked" => filtered.Where(l => l.IsRevoked),
+            _ => filtered
+        };
+        return filtered.ToList();
+    }
+
+    private (string Label, string BadgeClass) GetLicenseStatus(IssuedLicenseRecord lic)
+    {
+        if (lic.IsRevoked) return ("Revoked", "text-bg-danger");
+        if (lic.ExpiresAt != null && lic.ExpiresAt <= DateTime.UtcNow) return ("Expired", "text-bg-warning");
+        return ("Active", "text-bg-success");
+    }
+
+    private async Task CopyKey(string key) =>
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", key);
+
+    private async Task OnRevoke(string licenseId)
+    {
+        await License.RevokeLicenseAsync(licenseId);
+        _licenses = await License.GetAllLicensesAsync();
+    }
+
+    private async Task RefreshLicenses()
+    {
+        _licensesLoading = true;
+        StateHasChanged();
+        _licenses = await License.GetAllLicensesAsync();
+        _licensesLoading = false;
+    }
+
+    // ─── Verify Tab ───
+
+    private RenderFragment RenderVerifyTab() => __builder =>
+    {
+        <div class="row">
+            <div class="col-lg-7">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3">Verify License Key</h5>
+
+                        @if (string.IsNullOrEmpty(_publicKeyPem))
+                        {
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle me-1"></i>
+                                Load your public key first. Go to the <a href="/settings">Keys</a> tab.
+                            </div>
+                        }
+
+                        <div class="mb-3">
+                            <label class="form-label">Paste License Key</label>
+                            <textarea class="form-control font-monospace" rows="6" @bind="_verifyKeyInput"
+                                      placeholder="Paste the full license key here..." style="font-size: 0.8rem;"></textarea>
+                        </div>
+                        <button class="btn btn-primary" @onclick="OnVerify"
+                                disabled="@(_verifying || string.IsNullOrEmpty(_publicKeyPem))">
+                            @if (_verifying)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <i class="bi bi-shield-check me-1"></i>Verify
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-5">
+                @if (_verifyResult.HasValue)
+                {
+                    var r = _verifyResult.Value;
+                    <div class="card @(r.Valid ? "border-success" : "border-danger")">
+                        <div class="card-body">
+                            @if (r.Valid && r.Payload != null)
+                            {
+                                <h5 class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Valid Signature</h5>
+                                @if (r.Expired)
+                                {
+                                    <div class="alert alert-warning py-2 mt-2">
+                                        <i class="bi bi-exclamation-triangle me-1"></i>License has expired
+                                    </div>
+                                }
+                                <table class="table table-sm mt-3 mb-0">
+                                    <tbody>
+                                        <tr><td class="text-body-secondary" style="width:130px;">License ID</td><td><code>@r.Payload.lid</code></td></tr>
+                                        <tr><td class="text-body-secondary">Organization</td><td>@r.Payload.org</td></tr>
+                                        <tr><td class="text-body-secondary">Type</td><td>@r.Payload.type</td></tr>
+                                        <tr><td class="text-body-secondary">Issued</td><td>@r.Payload.issued</td></tr>
+                                        <tr><td class="text-body-secondary">Expires</td><td>@(r.Payload.expires ?? "Never")</td></tr>
+                                        <tr><td class="text-body-secondary">Max Relays</td><td>@(r.Payload.maxRelays == 0 ? "Unlimited" : r.Payload.maxRelays.ToString())</td></tr>
+                                        <tr><td class="text-body-secondary">Max Recipes</td><td>@(r.Payload.maxRecipes == 0 ? "Unlimited" : r.Payload.maxRecipes.ToString())</td></tr>
+                                        <tr><td class="text-body-secondary">Features</td><td>@(r.Payload.features.Length == 0 ? "All" : string.Join(", ", r.Payload.features))</td></tr>
+                                    </tbody>
+                                </table>
+                            }
+                            else
+                            {
+                                <h5 class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>Invalid</h5>
+                                <p class="mb-0">@r.Error</p>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="card">
+                        <div class="card-body text-center text-body-secondary py-5">
+                            <i class="bi bi-shield-check" style="font-size: 2rem;"></i>
+                            <p class="mt-2 mb-0">Verification result will appear here.</p>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    };
+
+    private async Task OnVerify()
+    {
+        _verifyResult = null;
+        if (string.IsNullOrWhiteSpace(_verifyKeyInput) || string.IsNullOrEmpty(_publicKeyPem)) return;
+        _verifying = true;
+        try
+        {
+            _verifyResult = await License.VerifyLicenseKeyAsync(_publicKeyPem, _verifyKeyInput.Trim());
+        }
+        finally
+        {
+            _verifying = false;
+        }
+    }
+
+    // ─── Settings (Keys) Tab ───
+
+    private string? _keyMessage;
+    private string? _keyError;
+    private bool _generatingKeyPair;
+
+    private RenderFragment RenderSettingsTab() => __builder =>
+    {
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3">Private Key</h5>
+                        <p class="text-body-secondary small">
+                            The private key is loaded from a file each session and held in memory only.
+                            It is never stored in the browser or sent to GitHub.
+                        </p>
+
+                        <div class="mb-3">
+                            <label class="form-label">Load Private Key (.pem)</label>
+                            <input type="file" class="form-control" id="privateKeyFile" accept=".pem"
+                                   @onchange="OnPrivateKeyFileChanged" />
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(_privateKeyPem))
+                        {
+                            <div class="alert alert-success py-2">
+                                <i class="bi bi-check-circle me-1"></i>Private key loaded (in memory).
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3">Public Key</h5>
+                        <p class="text-body-secondary small">
+                            The public key is used for verification. Load it from a file or extract it
+                            when generating a new key pair.
+                        </p>
+
+                        <div class="mb-3">
+                            <label class="form-label">Load Public Key (.pem)</label>
+                            <input type="file" class="form-control" id="publicKeyFile" accept=".pem"
+                                   @onchange="OnPublicKeyFileChanged" />
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(_publicKeyPem))
+                        {
+                            <div class="alert alert-success py-2">
+                                <i class="bi bi-check-circle me-1"></i>Public key loaded (in memory).
+                                <button class="btn btn-sm btn-outline-success ms-2" @onclick="DownloadPublicKey">
+                                    <i class="bi bi-download me-1"></i>Download
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-body">
+                <h5 class="card-title mb-3">Generate New RSA-4096 Key Pair</h5>
+                <p class="text-body-secondary small">
+                    Generates a new RSA-4096 key pair in the browser. Both files will be downloaded automatically.
+                    Store the private key securely.
+                </p>
+
+                @if (!string.IsNullOrEmpty(_keyError))
+                {
+                    <div class="alert alert-danger">@_keyError</div>
+                }
+                @if (!string.IsNullOrEmpty(_keyMessage))
+                {
+                    <div class="alert alert-success">@_keyMessage</div>
+                }
+
+                <button class="btn btn-outline-primary" @onclick="OnGenerateKeyPair" disabled="@_generatingKeyPair">
+                    @if (_generatingKeyPair)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Generating RSA-4096 (this takes a moment)...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-key me-1"></i>
+                        <span>Generate Key Pair</span>
+                    }
+                </button>
+            </div>
+        </div>
+    };
+
+    private async Task OnPrivateKeyFileChanged()
+    {
+        var content = await JS.InvokeAsync<string?>("readFileText", "privateKeyFile");
+        if (!string.IsNullOrEmpty(content))
+            _privateKeyPem = content;
+    }
+
+    private async Task OnPublicKeyFileChanged()
+    {
+        var content = await JS.InvokeAsync<string?>("readFileText", "publicKeyFile");
+        if (!string.IsNullOrEmpty(content))
+            _publicKeyPem = content;
+    }
+
+    private async Task DownloadPublicKey()
+    {
+        if (_publicKeyPem != null)
+            await JS.InvokeVoidAsync("downloadTextFile", "fluxdeploy-license-public.pem", _publicKeyPem);
+    }
+
+    private async Task OnGenerateKeyPair()
+    {
+        _keyError = null;
+        _keyMessage = null;
+        _generatingKeyPair = true;
+        StateHasChanged();
+
+        try
+        {
+            var (priv, pub) = await License.GenerateKeyPairAsync();
+            _privateKeyPem = priv;
+            _publicKeyPem = pub;
+
+            await JS.InvokeVoidAsync("downloadTextFile", "fluxdeploy-license-private.pem", priv);
+            await JS.InvokeVoidAsync("downloadTextFile", "fluxdeploy-license-public.pem", pub);
+
+            _keyMessage = "RSA-4096 key pair generated and downloaded. Store the private key securely.";
+        }
+        catch (Exception ex)
+        {
+            _keyError = $"Key generation failed: {ex.Message}";
+        }
+        finally
+        {
+            _generatingKeyPair = false;
+        }
+    }
+}

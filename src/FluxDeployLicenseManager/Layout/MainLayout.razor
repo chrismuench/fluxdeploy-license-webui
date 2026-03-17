@@ -1,0 +1,22 @@
+@inherits LayoutComponentBase
+
+<div class="min-vh-100 d-flex flex-column">
+    <nav class="navbar navbar-dark bg-dark border-bottom border-secondary">
+        <div class="container" style="max-width: 1100px;">
+            <a class="navbar-brand d-flex align-items-center gap-2" href="">
+                <i class="bi bi-key-fill text-primary"></i>
+                <span class="fw-semibold">FluxDeploy License Manager</span>
+            </a>
+        </div>
+    </nav>
+    <main class="flex-grow-1">
+        <div class="container py-4" style="max-width: 1100px;">
+            @Body
+        </div>
+    </main>
+    <footer class="border-top border-secondary py-2">
+        <div class="container text-center">
+            <small class="text-body-secondary">FluxDeploy License Manager</small>
+        </div>
+    </footer>
+</div>

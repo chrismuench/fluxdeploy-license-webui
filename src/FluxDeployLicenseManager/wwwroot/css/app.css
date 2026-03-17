@@ -1,0 +1,41 @@
+body {
+    background-color: var(--bs-body-bg);
+}
+
+.font-monospace {
+    font-family: 'Consolas', 'Courier New', monospace !important;
+}
+
+pre {
+    margin-bottom: 0;
+}
+
+.table > :not(caption) > * > * {
+    background-color: transparent;
+}
+
+.nav-tabs .nav-link {
+    color: var(--bs-body-color);
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--bs-primary);
+    background-color: var(--bs-body-bg);
+    border-color: var(--bs-border-color) var(--bs-border-color) var(--bs-body-bg);
+}
+
+#blazor-error-ui {
+    background: var(--bs-danger);
+    color: white;
+    padding: 0.5rem 1rem;
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    z-index: 9999;
+    text-align: center;
+}
+
+#blazor-error-ui .reload {
+    color: white;
+    font-weight: bold;
+}
