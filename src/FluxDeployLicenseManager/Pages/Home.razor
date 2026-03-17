@@ -13,29 +13,29 @@ else
 {
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1 class="h3 mb-0">License Manager</h1>
-        <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => Nav.NavigateTo("/setup"))">
+        <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => Nav.NavigateTo("setup"))">
             <i class="bi bi-github me-1"></i>GitHub Settings
         </button>
     </div>
 
     <ul class="nav nav-tabs mb-4">
         <li class="nav-item">
-            <a class="nav-link @(ActiveTab == "generate" ? "active" : "")" href="/generate">
+            <a class="nav-link @(ActiveTab == "generate" ? "active" : "")" href="generate">
                 <i class="bi bi-plus-circle me-1"></i>Generate
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link @(ActiveTab == "licenses" ? "active" : "")" href="/licenses">
+            <a class="nav-link @(ActiveTab == "licenses" ? "active" : "")" href="licenses">
                 <i class="bi bi-list-ul me-1"></i>Licenses
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link @(ActiveTab == "verify" ? "active" : "")" href="/verify">
+            <a class="nav-link @(ActiveTab == "verify" ? "active" : "")" href="verify">
                 <i class="bi bi-shield-check me-1"></i>Verify
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link @(ActiveTab == "settings" ? "active" : "")" href="/settings">
+            <a class="nav-link @(ActiveTab == "settings" ? "active" : "")" href="settings">
                 <i class="bi bi-gear me-1"></i>Keys
             </a>
         </li>
@@ -91,7 +91,7 @@ else
         await GitHub.LoadConfigAsync();
         if (!GitHub.IsConfigured)
         {
-            Nav.NavigateTo("/setup");
+            Nav.NavigateTo("setup");
             return;
         }
         _ready = true;
@@ -128,7 +128,7 @@ else
                         {
                             <div class="alert alert-warning">
                                 <i class="bi bi-exclamation-triangle me-1"></i>
-                                Load your private key first. Go to the <a href="/settings">Keys</a> tab.
+                                Load your private key first. Go to the <a href="settings">Keys</a> tab.
                             </div>
                         }
 
@@ -469,7 +469,7 @@ else
                         {
                             <div class="alert alert-warning">
                                 <i class="bi bi-exclamation-triangle me-1"></i>
-                                Load your public key first. Go to the <a href="/settings">Keys</a> tab.
+                                Load your public key first. Go to the <a href="settings">Keys</a> tab.
                             </div>
                         }
 
