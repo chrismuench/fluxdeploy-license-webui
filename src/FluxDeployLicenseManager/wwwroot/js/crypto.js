@@ -63,6 +63,10 @@ window.downloadTextFile = function (filename, content) {
     URL.revokeObjectURL(url);
 };
 
+window.navigateToBase = function () {
+    window.location.href = document.baseURI;
+};
+
 window.readFileText = function (inputElementId) {
     return new Promise((resolve, reject) => {
         const input = document.getElementById(inputElementId);
