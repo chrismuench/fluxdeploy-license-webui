@@ -9,7 +9,7 @@ namespace FluxDeployLicenseManager.Services;
 
 /// <summary>
 /// Reads/writes a JSON file in a GitHub repo via the GitHub Contents API.
-/// Repo name is hardcoded to GitHubConfig.RequiredRepo.
+/// Owner and repo are hardcoded in GitHubConfig.
 /// </summary>
 public class GitHubStorageService
 {
@@ -33,7 +33,7 @@ public class GitHubStorageService
 
     public bool IsConfigured => Config != null && !string.IsNullOrEmpty(Config.Token);
 
-    private string RepoPath => $"{Config!.Owner}/{GitHubConfig.RequiredRepo}";
+    private static string RepoPath => $"{GitHubConfig.Owner}/{GitHubConfig.Repo}";
 
     public async Task LoadConfigAsync()
     {
@@ -73,7 +73,7 @@ public class GitHubStorageService
             var repoResponse = await _http.SendAsync(repoRequest);
 
             if (repoResponse.StatusCode == System.Net.HttpStatusCode.NotFound)
-                return (false, $"Repository '{GitHubConfig.RequiredRepo}' not found under '{Config.Owner}'. Create it first as a private repo.");
+                return (false, $"Repository '{RepoPath}' not found or token does not have access. Ensure the fine-grained PAT is scoped to this repo.");
 
             if (repoResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
                 repoResponse.StatusCode == System.Net.HttpStatusCode.Forbidden)
@@ -82,13 +82,8 @@ public class GitHubStorageService
             if (!repoResponse.IsSuccessStatusCode)
                 return (false, $"Unexpected error: {repoResponse.StatusCode}");
 
-            // Verify repo name matches exactly
-            var repoData = await repoResponse.Content.ReadFromJsonAsync<JsonElement>();
-            var repoName = repoData.GetProperty("name").GetString();
-            if (!string.Equals(repoName, GitHubConfig.RequiredRepo, StringComparison.OrdinalIgnoreCase))
-                return (false, $"Repository name mismatch. Expected '{GitHubConfig.RequiredRepo}', got '{repoName}'.");
-
             // Verify we can read/write by checking permissions
+            var repoData = await repoResponse.Content.ReadFromJsonAsync<JsonElement>();
             var permissions = repoData.GetProperty("permissions");
             var canPush = permissions.GetProperty("push").GetBoolean();
             if (!canPush)

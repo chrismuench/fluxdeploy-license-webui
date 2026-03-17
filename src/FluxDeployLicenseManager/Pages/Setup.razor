@@ -4,17 +4,14 @@
 @inject IJSRuntime JS
 
 <div class="row justify-content-center mt-4">
-    <div class="col-md-6">
+    <div class="col-md-5">
         <div class="card">
             <div class="card-body p-4">
                 <div class="text-center mb-4">
-                    <i class="bi bi-github text-primary" style="font-size: 2.5rem;"></i>
-                    <h3 class="mt-2">Connect to GitHub</h3>
+                    <i class="bi bi-key-fill text-primary" style="font-size: 2.5rem;"></i>
+                    <h3 class="mt-2">FluxDeploy License Manager</h3>
                     <p class="text-body-secondary">
-                        License records are stored in a private GitHub repo named
-                        <code>@GitHubConfig.RequiredRepo</code>. Create this repo under your account,
-                        then generate a fine-grained PAT with <strong>Contents: Read and write</strong>
-                        scoped to that repo.
+                        Enter your GitHub Personal Access Token to connect.
                     </p>
                 </div>
 
@@ -28,37 +25,18 @@
                 }
 
                 <div class="mb-3">
-                    <label class="form-label">GitHub Username</label>
-                    <input type="text" class="form-control" @bind="_owner" @bind:event="oninput"
-                           placeholder="your-username" />
-                </div>
-
-                <div class="mb-3">
                     <label class="form-label">Personal Access Token</label>
                     <input type="password" class="form-control" @bind="_token" @bind:event="oninput"
-                           placeholder="github_pat_xxxxxxxxxxxx" />
-                    <div class="form-text">
-                        Fine-grained token with <strong>Contents: Read and write</strong> on
-                        <code>@GitHubConfig.RequiredRepo</code> only.
-                    </div>
+                           @onkeydown="OnKeyDown" placeholder="github_pat_xxxxxxxxxxxx" />
                 </div>
 
-                <div class="mb-3 p-3 rounded" style="background: var(--bs-tertiary-bg);">
-                    <small class="text-body-secondary">
-                        <strong>Repository:</strong> <code>@(_owner.Length > 0 ? _owner : "username")/@GitHubConfig.RequiredRepo</code><br />
-                        <strong>File:</strong> <code>@GitHubConfig.FilePath</code>
-                    </small>
-                </div>
-
-                <div class="d-flex gap-2">
-                    <button class="btn btn-primary" @onclick="ValidateAndSave" disabled="@_validating">
-                        @if (_validating)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                        }
-                        Connect
-                    </button>
-                </div>
+                <button class="btn btn-primary w-100" @onclick="ValidateAndSave" disabled="@_validating">
+                    @if (_validating)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Connect
+                </button>
             </div>
         </div>
     </div>
@@ -66,7 +44,6 @@
 
 @code {
     private string _token = "";
-    private string _owner = "";
     private string? _error;
     private string? _success;
     private bool _validating;
@@ -75,10 +52,12 @@
     {
         await GitHub.LoadConfigAsync();
         if (GitHub.Config != null)
-        {
             _token = GitHub.Config.Token;
-            _owner = GitHub.Config.Owner;
-        }
+    }
+
+    private async Task OnKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await ValidateAndSave();
     }
 
     private async Task ValidateAndSave()
@@ -86,21 +65,16 @@
         _error = null;
         _success = null;
 
-        if (string.IsNullOrWhiteSpace(_owner) || string.IsNullOrWhiteSpace(_token))
+        if (string.IsNullOrWhiteSpace(_token))
         {
-            _error = "Username and token are required.";
+            _error = "Token is required.";
             return;
         }
 
         _validating = true;
         try
         {
-            // Save config first so ValidateAccessAsync can use it
-            await GitHub.SaveConfigAsync(new GitHubConfig
-            {
-                Token = _token.Trim(),
-                Owner = _owner.Trim()
-            });
+            await GitHub.SaveConfigAsync(new GitHubConfig { Token = _token.Trim() });
 
             var (ok, error) = await GitHub.ValidateAccessAsync();
             if (!ok)
@@ -110,7 +84,7 @@
                 return;
             }
 
-            _success = "Connected successfully.";
+            _success = "Connected.";
             await Task.Delay(500);
             await JS.InvokeVoidAsync("navigateToBase");
         }
