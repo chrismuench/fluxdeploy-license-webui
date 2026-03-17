@@ -410,13 +410,9 @@ else
                                                     @onclick="@(() => CopyKey(lic.KeyData))">
                                                 <i class="bi bi-clipboard"></i>
                                             </button>
-                                            <button class="btn btn-sm btn-outline-secondary me-1" title="Edit notes"
+                                            <button class="btn btn-sm btn-outline-secondary" title="Edit notes"
                                                     @onclick="@(() => OpenEditNotes(lic))">
                                                 <i class="bi bi-pencil"></i>
-                                            </button>
-                                            <button class="btn btn-sm btn-outline-danger" title="Delete"
-                                                    @onclick="@(() => OnDelete(lic.LicenseId, lic.OrganizationName))">
-                                                <i class="bi bi-trash"></i>
                                             </button>
                                         </td>
                                     </tr>
@@ -452,30 +448,6 @@ else
             </div>
         }
 
-        @if (_deleteConfirmId != null)
-        {
-            <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Delete License</h5>
-                            <button type="button" class="btn-close" @onclick="CancelDelete"></button>
-                        </div>
-                        <div class="modal-body">
-                            <p>Delete license <strong>@_deleteConfirmId</strong> for <strong>@_deleteConfirmName</strong>?</p>
-                            <p class="text-body-secondary small mb-0">This only removes the record from tracking. Already-deployed keys remain valid since verification is offline.</p>
-                        </div>
-                        <div class="modal-footer">
-                            <button class="btn btn-secondary" @onclick="CancelDelete">Cancel</button>
-                            <button class="btn btn-danger" @onclick="ConfirmDelete" disabled="@_deleting">
-                                @if (_deleting) { <span class="spinner-border spinner-border-sm me-1"></span> }
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        }
     };
 
     private List<IssuedLicenseRecord> FilterLicenses()
@@ -526,31 +498,6 @@ else
     }
 
     private void CancelEditNotes() => _editingLicense = null;
-
-    private string? _deleteConfirmId;
-    private string? _deleteConfirmName;
-    private bool _deleting;
-
-    private void OnDelete(string licenseId, string orgName)
-    {
-        _deleteConfirmId = licenseId;
-        _deleteConfirmName = orgName;
-    }
-
-    private async Task ConfirmDelete()
-    {
-        if (_deleteConfirmId == null) return;
-        _deleting = true;
-        try
-        {
-            await License.DeleteLicenseAsync(_deleteConfirmId);
-            _licenses = await License.GetAllLicensesAsync();
-            _deleteConfirmId = null;
-        }
-        finally { _deleting = false; }
-    }
-
-    private void CancelDelete() => _deleteConfirmId = null;
 
     private async Task RefreshLicenses()
     {

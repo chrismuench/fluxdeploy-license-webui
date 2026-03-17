@@ -144,13 +144,6 @@ public class LicenseService
         await _github.WriteStoreAsync(store, $"Update notes for {licenseId}");
     }
 
-    public async Task DeleteLicenseAsync(string licenseId)
-    {
-        var store = await _github.ReadStoreAsync();
-        store.Licenses.RemoveAll(l => l.LicenseId == licenseId);
-        await _github.WriteStoreAsync(store, $"Delete license {licenseId}");
-    }
-
     public async Task<(string PrivateKeyPem, string PublicKeyPem)> GenerateKeyPairAsync()
     {
         return await _crypto.GenerateKeyPairAsync();
