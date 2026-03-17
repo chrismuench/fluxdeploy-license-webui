@@ -4,16 +4,17 @@
 @inject IJSRuntime JS
 
 <div class="row justify-content-center mt-4">
-    <div class="col-md-7">
+    <div class="col-md-6">
         <div class="card">
             <div class="card-body p-4">
                 <div class="text-center mb-4">
                     <i class="bi bi-github text-primary" style="font-size: 2.5rem;"></i>
                     <h3 class="mt-2">Connect to GitHub</h3>
                     <p class="text-body-secondary">
-                        License records are stored in a GitHub repository. Create a
-                        <strong>private repo</strong> and generate a
-                        <strong>Personal Access Token</strong> with <code>repo</code> scope.
+                        License records are stored in a private GitHub repo named
+                        <code>@GitHubConfig.RequiredRepo</code>. Create this repo under your account,
+                        then generate a fine-grained PAT with <strong>Contents: Read and write</strong>
+                        scoped to that repo.
                     </p>
                 </div>
 
@@ -27,46 +28,35 @@
                 }
 
                 <div class="mb-3">
-                    <label class="form-label">GitHub Personal Access Token</label>
+                    <label class="form-label">GitHub Username</label>
+                    <input type="text" class="form-control" @bind="_owner" @bind:event="oninput"
+                           placeholder="your-username" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Personal Access Token</label>
                     <input type="password" class="form-control" @bind="_token" @bind:event="oninput"
-                           placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+                           placeholder="github_pat_xxxxxxxxxxxx" />
                     <div class="form-text">
-                        Fine-grained token with <strong>Contents: Read and write</strong> on the target repo.
+                        Fine-grained token with <strong>Contents: Read and write</strong> on
+                        <code>@GitHubConfig.RequiredRepo</code> only.
                     </div>
                 </div>
 
-                <div class="row mb-3">
-                    <div class="col-md-5">
-                        <label class="form-label">Repository Owner</label>
-                        <input type="text" class="form-control" @bind="_owner" @bind:event="oninput"
-                               placeholder="your-username" />
-                    </div>
-                    <div class="col-md-5">
-                        <label class="form-label">Repository Name</label>
-                        <input type="text" class="form-control" @bind="_repo" @bind:event="oninput"
-                               placeholder="fluxdeploy-licenses" />
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">File Path</label>
-                        <input type="text" class="form-control" @bind="_filePath"
-                               placeholder="licenses.json" />
-                    </div>
+                <div class="mb-3 p-3 rounded" style="background: var(--bs-tertiary-bg);">
+                    <small class="text-body-secondary">
+                        <strong>Repository:</strong> <code>@(_owner.Length > 0 ? _owner : "username")/@GitHubConfig.RequiredRepo</code><br />
+                        <strong>File:</strong> <code>@GitHubConfig.FilePath</code>
+                    </small>
                 </div>
 
                 <div class="d-flex gap-2">
-                    <button class="btn btn-outline-secondary" @onclick="TestConnection" disabled="@_testing">
-                        @if (_testing)
+                    <button class="btn btn-primary" @onclick="ValidateAndSave" disabled="@_validating">
+                        @if (_validating)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
                         }
-                        <i class="bi bi-plug me-1"></i>Test Connection
-                    </button>
-                    <button class="btn btn-primary" @onclick="SaveAndContinue" disabled="@(!_tested || _saving)">
-                        @if (_saving)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                        }
-                        Save & Continue
+                        Connect
                     </button>
                 </div>
             </div>
@@ -77,13 +67,9 @@
 @code {
     private string _token = "";
     private string _owner = "";
-    private string _repo = "";
-    private string _filePath = "licenses.json";
     private string? _error;
     private string? _success;
-    private bool _testing;
-    private bool _tested;
-    private bool _saving;
+    private bool _validating;
 
     protected override async Task OnInitializedAsync()
     {
@@ -92,72 +78,50 @@
         {
             _token = GitHub.Config.Token;
             _owner = GitHub.Config.Owner;
-            _repo = GitHub.Config.Repo;
-            _filePath = GitHub.Config.FilePath;
         }
     }
 
-    private async Task TestConnection()
+    private async Task ValidateAndSave()
     {
         _error = null;
         _success = null;
-        _tested = false;
 
-        if (string.IsNullOrWhiteSpace(_token) || string.IsNullOrWhiteSpace(_owner) || string.IsNullOrWhiteSpace(_repo))
+        if (string.IsNullOrWhiteSpace(_owner) || string.IsNullOrWhiteSpace(_token))
         {
-            _error = "All fields are required.";
+            _error = "Username and token are required.";
             return;
         }
 
-        _testing = true;
+        _validating = true;
         try
         {
+            // Save config first so ValidateAccessAsync can use it
             await GitHub.SaveConfigAsync(new GitHubConfig
             {
                 Token = _token.Trim(),
-                Owner = _owner.Trim(),
-                Repo = _repo.Trim(),
-                FilePath = string.IsNullOrWhiteSpace(_filePath) ? "licenses.json" : _filePath.Trim()
+                Owner = _owner.Trim()
             });
 
-            var ok = await GitHub.TestConnectionAsync();
-            if (ok)
+            var (ok, error) = await GitHub.ValidateAccessAsync();
+            if (!ok)
             {
-                _success = "Connected successfully.";
-                _tested = true;
+                _error = error;
+                await GitHub.ClearConfigAsync();
+                return;
             }
-            else
-            {
-                _error = "Connection failed. Check your token and repo name.";
-            }
+
+            _success = "Connected successfully.";
+            await Task.Delay(500);
+            await JS.InvokeVoidAsync("navigateToBase");
         }
         catch (Exception ex)
         {
             _error = $"Connection failed: {ex.Message}";
+            await GitHub.ClearConfigAsync();
         }
         finally
         {
-            _testing = false;
-        }
-    }
-
-    private async Task SaveAndContinue()
-    {
-        _saving = true;
-        try
-        {
-            await GitHub.SaveConfigAsync(new GitHubConfig
-            {
-                Token = _token.Trim(),
-                Owner = _owner.Trim(),
-                Repo = _repo.Trim(),
-                FilePath = string.IsNullOrWhiteSpace(_filePath) ? "licenses.json" : _filePath.Trim()
-            });
-            await JS.InvokeVoidAsync("navigateToBase");
-        }
-        finally
-        {
-            _saving = false;
+            _validating = false;
         }
     }
 }

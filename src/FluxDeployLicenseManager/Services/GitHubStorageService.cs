@@ -9,7 +9,7 @@ namespace FluxDeployLicenseManager.Services;
 
 /// <summary>
 /// Reads/writes a JSON file in a GitHub repo via the GitHub Contents API.
-/// Acts as the "database" for issued licenses.
+/// Repo name is hardcoded to GitHubConfig.RequiredRepo.
 /// </summary>
 public class GitHubStorageService
 {
@@ -33,6 +33,8 @@ public class GitHubStorageService
 
     public bool IsConfigured => Config != null && !string.IsNullOrEmpty(Config.Token);
 
+    private string RepoPath => $"{Config!.Owner}/{GitHubConfig.RequiredRepo}";
+
     public async Task LoadConfigAsync()
     {
         var json = await _js.InvokeAsync<string?>("localStorage.getItem", "github_config");
@@ -54,18 +56,50 @@ public class GitHubStorageService
         await _js.InvokeVoidAsync("localStorage.removeItem", "github_config");
     }
 
-    public async Task<bool> TestConnectionAsync()
+    /// <summary>
+    /// Verifies the PAT has access to the required repo and can write to it.
+    /// Returns (success, errorMessage).
+    /// </summary>
+    public async Task<(bool Ok, string? Error)> ValidateAccessAsync()
     {
-        if (Config == null) return false;
+        if (Config == null) return (false, "Not configured");
+
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get,
-                $"https://api.github.com/repos/{Config.Owner}/{Config.Repo}");
-            AddHeaders(request);
-            var response = await _http.SendAsync(request);
-            return response.IsSuccessStatusCode;
+            // Check the token can see the repo
+            var repoRequest = new HttpRequestMessage(HttpMethod.Get,
+                $"https://api.github.com/repos/{RepoPath}");
+            AddHeaders(repoRequest);
+            var repoResponse = await _http.SendAsync(repoRequest);
+
+            if (repoResponse.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return (false, $"Repository '{GitHubConfig.RequiredRepo}' not found under '{Config.Owner}'. Create it first as a private repo.");
+
+            if (repoResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                repoResponse.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                return (false, "Token does not have access to this repository. Ensure the fine-grained PAT has Contents read/write permission on the repo.");
+
+            if (!repoResponse.IsSuccessStatusCode)
+                return (false, $"Unexpected error: {repoResponse.StatusCode}");
+
+            // Verify repo name matches exactly
+            var repoData = await repoResponse.Content.ReadFromJsonAsync<JsonElement>();
+            var repoName = repoData.GetProperty("name").GetString();
+            if (!string.Equals(repoName, GitHubConfig.RequiredRepo, StringComparison.OrdinalIgnoreCase))
+                return (false, $"Repository name mismatch. Expected '{GitHubConfig.RequiredRepo}', got '{repoName}'.");
+
+            // Verify we can read/write by checking permissions
+            var permissions = repoData.GetProperty("permissions");
+            var canPush = permissions.GetProperty("push").GetBoolean();
+            if (!canPush)
+                return (false, "Token has read access but not write access. The fine-grained PAT needs Contents read/write permission.");
+
+            return (true, null);
         }
-        catch { return false; }
+        catch (Exception ex)
+        {
+            return (false, $"Connection failed: {ex.Message}");
+        }
     }
 
     public async Task<LicenseStore> ReadStoreAsync()
@@ -75,7 +109,7 @@ public class GitHubStorageService
         try
         {
             var request = new HttpRequestMessage(HttpMethod.Get,
-                $"https://api.github.com/repos/{Config.Owner}/{Config.Repo}/contents/{Config.FilePath}");
+                $"https://api.github.com/repos/{RepoPath}/contents/{GitHubConfig.FilePath}");
             AddHeaders(request);
             var response = await _http.SendAsync(request);
 
@@ -113,7 +147,7 @@ public class GitHubStorageService
             body["sha"] = _currentSha;
 
         var request = new HttpRequestMessage(HttpMethod.Put,
-            $"https://api.github.com/repos/{Config.Owner}/{Config.Repo}/contents/{Config.FilePath}");
+            $"https://api.github.com/repos/{RepoPath}/contents/{GitHubConfig.FilePath}");
         AddHeaders(request);
         request.Content = new StringContent(
             JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
