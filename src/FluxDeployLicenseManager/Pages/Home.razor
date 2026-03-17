@@ -66,7 +66,7 @@ else
     private int _durationDays = 365;
     private int _maxRelays = 0;
     private int _maxRecipes = 0;
-    private HashSet<string> _selectedFeatures = new();
+    private HashSet<string> _selectedFeatures = new(AllFeatures);
     private string _notes = "";
     private string? _generatedKey;
     private string? _generatedLicenseId;
@@ -182,8 +182,8 @@ else
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Features</label>
-                            <div class="form-text mb-2">Leave all unchecked to enable all features.</div>
+                            <label class="form-label">Licensed Features</label>
+                            <div class="form-text mb-2">Checked features are included in the license.</div>
                             <div class="row">
                                 @foreach (var feature in AllFeatures)
                                 {
