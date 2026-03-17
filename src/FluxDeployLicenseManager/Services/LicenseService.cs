@@ -134,15 +134,21 @@ public class LicenseService
         return store.Licenses.OrderByDescending(l => l.CreatedAt).ToList();
     }
 
-    public async Task RevokeLicenseAsync(string licenseId)
+    public async Task UpdateNotesAsync(string licenseId, string? notes)
     {
         var store = await _github.ReadStoreAsync();
         var license = store.Licenses.FirstOrDefault(l => l.LicenseId == licenseId);
         if (license == null) return;
 
-        license.IsRevoked = true;
-        license.RevokedAt = DateTime.UtcNow;
-        await _github.WriteStoreAsync(store, $"Revoke license {licenseId}");
+        license.Notes = notes;
+        await _github.WriteStoreAsync(store, $"Update notes for {licenseId}");
+    }
+
+    public async Task DeleteLicenseAsync(string licenseId)
+    {
+        var store = await _github.ReadStoreAsync();
+        store.Licenses.RemoveAll(l => l.LicenseId == licenseId);
+        await _github.WriteStoreAsync(store, $"Delete license {licenseId}");
     }
 
     public async Task<(string PrivateKeyPem, string PublicKeyPem)> GenerateKeyPairAsync()

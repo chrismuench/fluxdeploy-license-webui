@@ -296,9 +296,9 @@ else
     private RenderFragment RenderLicensesTab() => __builder =>
     {
         var total = _licenses.Count;
-        var active = _licenses.Count(l => !l.IsRevoked && (l.ExpiresAt == null || l.ExpiresAt > DateTime.UtcNow));
-        var expired = _licenses.Count(l => !l.IsRevoked && l.ExpiresAt != null && l.ExpiresAt <= DateTime.UtcNow);
-        var revoked = _licenses.Count(l => l.IsRevoked);
+        var active = _licenses.Count(l => l.ExpiresAt == null || l.ExpiresAt > DateTime.UtcNow);
+        var expired = _licenses.Count(l => l.ExpiresAt != null && l.ExpiresAt <= DateTime.UtcNow);
+        var perpetual = _licenses.Count(l => l.LicenseType == "perpetual");
 
         <div class="row g-3 mb-4">
             <div class="col-md-3">
@@ -318,7 +318,7 @@ else
             </div>
             <div class="col-md-3">
                 <div class="card text-center"><div class="card-body py-3">
-                    <div class="h4 mb-0 text-danger">@revoked</div><small class="text-body-secondary">Revoked</small>
+                    <div class="h4 mb-0 text-primary">@perpetual</div><small class="text-body-secondary">Perpetual</small>
                 </div></div>
             </div>
         </div>
@@ -332,7 +332,7 @@ else
                         <option value="all">All</option>
                         <option value="active">Active</option>
                         <option value="expired">Expired</option>
-                        <option value="revoked">Revoked</option>
+                        <option value="perpetual">Perpetual</option>
                     </select>
                     <button class="btn btn-outline-secondary btn-sm ms-auto" @onclick="RefreshLicenses" disabled="@_licensesLoading">
                         <i class="bi bi-arrow-clockwise"></i>
@@ -356,7 +356,7 @@ else
                                     <th>Issued</th>
                                     <th>Expires</th>
                                     <th>Features</th>
-                                    <th>Status</th>
+                                    <th>Notes</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -367,13 +367,25 @@ else
                                 }
                                 @foreach (var lic in filtered)
                                 {
-                                    var status = GetLicenseStatus(lic);
                                     <tr>
                                         <td><code>@lic.LicenseId</code></td>
                                         <td>@lic.OrganizationName</td>
                                         <td><span class="badge @(lic.LicenseType == "perpetual" ? "text-bg-primary" : "text-bg-secondary")">@lic.LicenseType</span></td>
                                         <td>@lic.IssuedAt.ToString("yyyy-MM-dd")</td>
-                                        <td>@(lic.ExpiresAt?.ToString("yyyy-MM-dd") ?? "Never")</td>
+                                        <td>
+                                            @if (lic.ExpiresAt == null)
+                                            {
+                                                <span class="text-body-secondary">Never</span>
+                                            }
+                                            else if (lic.ExpiresAt <= DateTime.UtcNow)
+                                            {
+                                                <span class="text-danger">@lic.ExpiresAt.Value.ToString("yyyy-MM-dd")</span>
+                                            }
+                                            else
+                                            {
+                                                @lic.ExpiresAt.Value.ToString("yyyy-MM-dd")
+                                            }
+                                        </td>
                                         <td>
                                             @if (lic.Features is { Length: > 0 })
                                             {
@@ -387,19 +399,25 @@ else
                                                 <span class="text-body-secondary">All</span>
                                             }
                                         </td>
-                                        <td><span class="badge @status.BadgeClass">@status.Label</span></td>
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(lic.Notes))
+                                            {
+                                                <span class="small text-body-secondary" title="@lic.Notes">@(lic.Notes.Length > 30 ? lic.Notes[..30] + "..." : lic.Notes)</span>
+                                            }
+                                        </td>
                                         <td>
                                             <button class="btn btn-sm btn-outline-secondary me-1" title="Copy key"
                                                     @onclick="@(() => CopyKey(lic.KeyData))">
                                                 <i class="bi bi-clipboard"></i>
                                             </button>
-                                            @if (!lic.IsRevoked)
-                                            {
-                                                <button class="btn btn-sm btn-outline-danger" title="Revoke"
-                                                        @onclick="@(() => OnRevoke(lic.LicenseId))">
-                                                    <i class="bi bi-x-circle"></i>
-                                                </button>
-                                            }
+                                            <button class="btn btn-sm btn-outline-secondary me-1" title="Edit notes"
+                                                    @onclick="@(() => OpenEditNotes(lic))">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" title="Delete"
+                                                    @onclick="@(() => OnDelete(lic.LicenseId, lic.OrganizationName))">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
                                         </td>
                                     </tr>
                                 }
@@ -409,6 +427,55 @@ else
                 }
             </div>
         </div>
+
+        @if (_editingLicense != null)
+        {
+            <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Edit Notes - @_editingLicense.LicenseId</h5>
+                            <button type="button" class="btn-close" @onclick="CancelEditNotes"></button>
+                        </div>
+                        <div class="modal-body">
+                            <textarea class="form-control" rows="4" @bind="_editNotes" placeholder="Add notes about this license..."></textarea>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" @onclick="CancelEditNotes">Cancel</button>
+                            <button class="btn btn-primary" @onclick="SaveNotes" disabled="@_savingNotes">
+                                @if (_savingNotes) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                Save
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_deleteConfirmId != null)
+        {
+            <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Delete License</h5>
+                            <button type="button" class="btn-close" @onclick="CancelDelete"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p>Delete license <strong>@_deleteConfirmId</strong> for <strong>@_deleteConfirmName</strong>?</p>
+                            <p class="text-body-secondary small mb-0">This only removes the record from tracking. Already-deployed keys remain valid since verification is offline.</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" @onclick="CancelDelete">Cancel</button>
+                            <button class="btn btn-danger" @onclick="ConfirmDelete" disabled="@_deleting">
+                                @if (_deleting) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
     };
 
     private List<IssuedLicenseRecord> FilterLicenses()
@@ -423,29 +490,67 @@ else
         }
         filtered = _licenseFilter switch
         {
-            "active" => filtered.Where(l => !l.IsRevoked && (l.ExpiresAt == null || l.ExpiresAt > DateTime.UtcNow)),
-            "expired" => filtered.Where(l => !l.IsRevoked && l.ExpiresAt != null && l.ExpiresAt <= DateTime.UtcNow),
-            "revoked" => filtered.Where(l => l.IsRevoked),
+            "active" => filtered.Where(l => l.ExpiresAt == null || l.ExpiresAt > DateTime.UtcNow),
+            "expired" => filtered.Where(l => l.ExpiresAt != null && l.ExpiresAt <= DateTime.UtcNow),
+            "perpetual" => filtered.Where(l => l.LicenseType == "perpetual"),
             _ => filtered
         };
         return filtered.ToList();
     }
 
-    private (string Label, string BadgeClass) GetLicenseStatus(IssuedLicenseRecord lic)
-    {
-        if (lic.IsRevoked) return ("Revoked", "text-bg-danger");
-        if (lic.ExpiresAt != null && lic.ExpiresAt <= DateTime.UtcNow) return ("Expired", "text-bg-warning");
-        return ("Active", "text-bg-success");
-    }
-
     private async Task CopyKey(string key) =>
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", key);
 
-    private async Task OnRevoke(string licenseId)
+    // Edit notes modal state
+    private IssuedLicenseRecord? _editingLicense;
+    private string _editNotes = "";
+    private bool _savingNotes;
+
+    private void OpenEditNotes(IssuedLicenseRecord lic)
     {
-        await License.RevokeLicenseAsync(licenseId);
-        _licenses = await License.GetAllLicensesAsync();
+        _editingLicense = lic;
+        _editNotes = lic.Notes ?? "";
     }
+
+    private async Task SaveNotes()
+    {
+        if (_editingLicense == null) return;
+        _savingNotes = true;
+        try
+        {
+            await License.UpdateNotesAsync(_editingLicense.LicenseId, string.IsNullOrWhiteSpace(_editNotes) ? null : _editNotes.Trim());
+            _editingLicense.Notes = string.IsNullOrWhiteSpace(_editNotes) ? null : _editNotes.Trim();
+            _editingLicense = null;
+        }
+        finally { _savingNotes = false; }
+    }
+
+    private void CancelEditNotes() => _editingLicense = null;
+
+    private string? _deleteConfirmId;
+    private string? _deleteConfirmName;
+    private bool _deleting;
+
+    private void OnDelete(string licenseId, string orgName)
+    {
+        _deleteConfirmId = licenseId;
+        _deleteConfirmName = orgName;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (_deleteConfirmId == null) return;
+        _deleting = true;
+        try
+        {
+            await License.DeleteLicenseAsync(_deleteConfirmId);
+            _licenses = await License.GetAllLicensesAsync();
+            _deleteConfirmId = null;
+        }
+        finally { _deleting = false; }
+    }
+
+    private void CancelDelete() => _deleteConfirmId = null;
 
     private async Task RefreshLicenses()
     {

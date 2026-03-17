@@ -12,8 +12,6 @@ public class IssuedLicenseRecord
     public int MaxRecipes { get; set; }
     public string[]? Features { get; set; }
     public string KeyData { get; set; } = "";
-    public bool IsRevoked { get; set; }
-    public DateTime? RevokedAt { get; set; }
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
