@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FluxDeploy License Manager</title>
     <base href="/" />
+    <!-- WEB-003/004: CSP with connect-src, frame-ancestors, script-src -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self';
+                   script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval';
+                   style-src 'self' 'unsafe-inline';
+                   connect-src 'self' https://api.github.com;
+                   img-src 'self' data:;
+                   font-src 'self';
+                   frame-ancestors 'none';" />
     <link rel="stylesheet" href="lib/bootstrap/css/bootstrap.min.css" />
     <link rel="stylesheet" href="lib/bootstrap-icons/font/bootstrap-icons.min.css" />
     <link rel="stylesheet" href="css/app.css" />
@@ -24,6 +33,12 @@
         <a href="" class="reload">Reload</a>
     </div>
 
+    <!-- WEB-014: HTTPS enforcement check -->
+    <script>
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+            document.getElementById('app').innerHTML = '<div class="min-vh-100 d-flex align-items-center justify-content-center"><div class="text-center"><h3 class="text-danger">HTTPS Required</h3><p>This application must be served over HTTPS.</p></div></div>';
+        }
+    </script>
     <script src="lib/bootstrap/js/bootstrap.bundle.min.js"></script>
     <script src="js/crypto.js"></script>
     <script src="_framework/blazor.webassembly.js"></script>

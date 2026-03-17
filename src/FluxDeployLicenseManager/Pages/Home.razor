@@ -1,6 +1,7 @@
 @page "/"
 @page "/{TabName?}"
 @inject LicenseService License
+@inject CryptoService Crypto
 @inject GitHubStorageService GitHub
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -56,9 +57,9 @@ else
 
     private bool _ready;
 
-    // Private key (held in memory only, loaded from file each session)
-    private string? _privateKeyPem;
-    private string? _publicKeyPem;
+    // WEB-006: Keys loaded from file, imported into SubtleCrypto cache once per session
+    private bool _privateKeyLoaded;
+    private bool _publicKeyLoaded;
 
     // Generate tab
     private string _org = "";
@@ -124,7 +125,7 @@ else
                     <div class="card-body">
                         <h5 class="card-title mb-3">Generate License Key</h5>
 
-                        @if (string.IsNullOrEmpty(_privateKeyPem))
+                        @if (!_privateKeyLoaded)
                         {
                             <div class="alert alert-warning">
                                 <i class="bi bi-exclamation-triangle me-1"></i>
@@ -139,8 +140,9 @@ else
 
                         <div class="mb-3">
                             <label class="form-label">Organization <span class="text-danger">*</span></label>
+                            <!-- WEB-011: maxlength enforced -->
                             <input type="text" class="form-control" @bind="_org" @bind:event="oninput"
-                                   placeholder="e.g. Contoso IT Services" />
+                                   maxlength="255" placeholder="e.g. Contoso IT Services" />
                         </div>
 
                         <div class="row mb-3">
@@ -205,7 +207,7 @@ else
                         </div>
 
                         <button class="btn btn-primary" @onclick="OnGenerate"
-                                disabled="@(_generating || string.IsNullOrEmpty(_privateKeyPem))">
+                                disabled="@(_generating || !_privateKeyLoaded)">
                             @if (_generating)
                             {
                                 <span class="spinner-border spinner-border-sm me-1"></span>
@@ -225,7 +227,12 @@ else
                                 <i class="bi bi-check-circle me-1"></i>License Generated
                             </h5>
                             <p class="mb-1"><strong>License ID:</strong> @_generatedLicenseId</p>
-                            <div class="mt-3">
+                            <!-- WEB-016: Key shown here only - not stored in GitHub -->
+                            <div class="alert alert-warning py-2 mt-2 small">
+                                <i class="bi bi-exclamation-triangle me-1"></i>
+                                Copy this key now. It will not be stored or shown again.
+                            </div>
+                            <div class="mt-2">
                                 <label class="form-label fw-semibold">License Key</label>
                                 <div class="position-relative">
                                     <pre class="bg-dark text-light p-3 rounded" style="font-size: 0.75rem; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto;">@_generatedKey</pre>
@@ -263,13 +270,14 @@ else
         _generatedKey = null;
 
         if (string.IsNullOrWhiteSpace(_org)) { _generateError = "Organization name is required."; return; }
-        if (string.IsNullOrEmpty(_privateKeyPem)) { _generateError = "Load your private key first."; return; }
+        if (!_privateKeyLoaded) { _generateError = "Load your private key first."; return; }
 
         _generating = true;
         try
         {
+            // WEB-006: Private key already imported into SubtleCrypto cache - not passed here
             var (key, licenseId) = await License.GenerateLicenseAsync(
-                _privateKeyPem, _org.Trim(), _licenseType, _durationDays, _maxRelays, _maxRecipes,
+                _org.Trim(), _licenseType, _durationDays, _maxRelays, _maxRecipes,
                 _selectedFeatures.ToArray(), string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim());
 
             _generatedKey = key;
@@ -277,7 +285,8 @@ else
         }
         catch (Exception ex)
         {
-            _generateError = $"Generation failed: {ex.Message}";
+            // WEB-008: Show the message (already sanitized in LicenseService) but not stack traces
+            _generateError = ex.Message;
         }
         finally
         {
@@ -406,10 +415,7 @@ else
                                             }
                                         </td>
                                         <td>
-                                            <button class="btn btn-sm btn-outline-secondary me-1" title="Copy key"
-                                                    @onclick="@(() => CopyKey(lic.KeyData))">
-                                                <i class="bi bi-clipboard"></i>
-                                            </button>
+                                            <!-- WEB-016: No copy key button - key is not stored -->
                                             <button class="btn btn-sm btn-outline-secondary" title="Edit notes"
                                                     @onclick="@(() => OpenEditNotes(lic))">
                                                 <i class="bi bi-pencil"></i>
@@ -470,9 +476,6 @@ else
         return filtered.ToList();
     }
 
-    private async Task CopyKey(string key) =>
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", key);
-
     // Edit notes modal state
     private IssuedLicenseRecord? _editingLicense;
     private string _editNotes = "";
@@ -493,6 +496,10 @@ else
             await License.UpdateNotesAsync(_editingLicense.LicenseId, string.IsNullOrWhiteSpace(_editNotes) ? null : _editNotes.Trim());
             _editingLicense.Notes = string.IsNullOrWhiteSpace(_editNotes) ? null : _editNotes.Trim();
             _editingLicense = null;
+        }
+        catch
+        {
+            // WEB-008
         }
         finally { _savingNotes = false; }
     }
@@ -517,7 +524,7 @@ else
                     <div class="card-body">
                         <h5 class="card-title mb-3">Verify License Key</h5>
 
-                        @if (string.IsNullOrEmpty(_publicKeyPem))
+                        @if (!_publicKeyLoaded)
                         {
                             <div class="alert alert-warning">
                                 <i class="bi bi-exclamation-triangle me-1"></i>
@@ -531,7 +538,7 @@ else
                                       placeholder="Paste the full license key here..." style="font-size: 0.8rem;"></textarea>
                         </div>
                         <button class="btn btn-primary" @onclick="OnVerify"
-                                disabled="@(_verifying || string.IsNullOrEmpty(_publicKeyPem))">
+                                disabled="@(_verifying || !_publicKeyLoaded)">
                             @if (_verifying)
                             {
                                 <span class="spinner-border spinner-border-sm me-1"></span>
@@ -593,11 +600,12 @@ else
     private async Task OnVerify()
     {
         _verifyResult = null;
-        if (string.IsNullOrWhiteSpace(_verifyKeyInput) || string.IsNullOrEmpty(_publicKeyPem)) return;
+        if (string.IsNullOrWhiteSpace(_verifyKeyInput) || !_publicKeyLoaded) return;
         _verifying = true;
         try
         {
-            _verifyResult = await License.VerifyLicenseKeyAsync(_publicKeyPem, _verifyKeyInput.Trim());
+            // WEB-006: Public key already imported - not passed here
+            _verifyResult = await License.VerifyLicenseKeyAsync(_verifyKeyInput.Trim());
         }
         finally
         {
@@ -629,7 +637,7 @@ else
                                    @onchange="OnPrivateKeyFileChanged" />
                         </div>
 
-                        @if (!string.IsNullOrEmpty(_privateKeyPem))
+                        @if (_privateKeyLoaded)
                         {
                             <div class="alert alert-success py-2">
                                 <i class="bi bi-check-circle me-1"></i>Private key loaded (in memory).
@@ -654,13 +662,10 @@ else
                                    @onchange="OnPublicKeyFileChanged" />
                         </div>
 
-                        @if (!string.IsNullOrEmpty(_publicKeyPem))
+                        @if (_publicKeyLoaded)
                         {
                             <div class="alert alert-success py-2">
                                 <i class="bi bi-check-circle me-1"></i>Public key loaded (in memory).
-                                <button class="btn btn-sm btn-outline-success ms-2" @onclick="DownloadPublicKey">
-                                    <i class="bi bi-download me-1"></i>Download
-                                </button>
                             </div>
                         }
                     </div>
@@ -701,24 +706,41 @@ else
         </div>
     };
 
+    // WEB-006: Import key into SubtleCrypto cache on file load
     private async Task OnPrivateKeyFileChanged()
     {
         var content = await JS.InvokeAsync<string?>("readFileText", "privateKeyFile");
         if (!string.IsNullOrEmpty(content))
-            _privateKeyPem = content;
+        {
+            try
+            {
+                await Crypto.ImportPrivateKeyAsync(content);
+                _privateKeyLoaded = true;
+            }
+            catch
+            {
+                _privateKeyLoaded = false;
+                _keyError = "Invalid private key file. Ensure it is a PEM-encoded RSA private key.";
+            }
+        }
     }
 
     private async Task OnPublicKeyFileChanged()
     {
         var content = await JS.InvokeAsync<string?>("readFileText", "publicKeyFile");
         if (!string.IsNullOrEmpty(content))
-            _publicKeyPem = content;
-    }
-
-    private async Task DownloadPublicKey()
-    {
-        if (_publicKeyPem != null)
-            await JS.InvokeVoidAsync("downloadTextFile", "fluxdeploy-license-public.pem", _publicKeyPem);
+        {
+            try
+            {
+                await Crypto.ImportPublicKeyAsync(content);
+                _publicKeyLoaded = true;
+            }
+            catch
+            {
+                _publicKeyLoaded = false;
+                _keyError = "Invalid public key file. Ensure it is a PEM-encoded RSA public key.";
+            }
+        }
     }
 
     private async Task OnGenerateKeyPair()
@@ -731,17 +753,22 @@ else
         try
         {
             var (priv, pub) = await License.GenerateKeyPairAsync();
-            _privateKeyPem = priv;
-            _publicKeyPem = pub;
+
+            // Import the generated keys into SubtleCrypto cache
+            await Crypto.ImportPrivateKeyAsync(priv);
+            await Crypto.ImportPublicKeyAsync(pub);
+            _privateKeyLoaded = true;
+            _publicKeyLoaded = true;
 
             await JS.InvokeVoidAsync("downloadTextFile", "fluxdeploy-license-private.pem", priv);
             await JS.InvokeVoidAsync("downloadTextFile", "fluxdeploy-license-public.pem", pub);
 
             _keyMessage = "RSA-4096 key pair generated and downloaded. Store the private key securely.";
         }
-        catch (Exception ex)
+        catch
         {
-            _keyError = $"Key generation failed: {ex.Message}";
+            // WEB-008: Generic error
+            _keyError = "Key generation failed. Please try again.";
         }
         finally
         {

@@ -11,7 +11,8 @@ public class IssuedLicenseRecord
     public int MaxRelaySites { get; set; }
     public int MaxRecipes { get; set; }
     public string[]? Features { get; set; }
-    public string KeyData { get; set; } = "";
+    // WEB-016: Only store a SHA-256 hash - full key shown once at generation, never persisted
+    public string KeyHash { get; set; } = "";
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -19,6 +19,10 @@
                 {
                     <div class="alert alert-danger">@_error</div>
                 }
+                @if (!string.IsNullOrEmpty(_warning))
+                {
+                    <div class="alert alert-warning">@_warning</div>
+                }
                 @if (!string.IsNullOrEmpty(_success))
                 {
                     <div class="alert alert-success">@_success</div>
@@ -28,6 +32,9 @@
                     <label class="form-label">Personal Access Token</label>
                     <input type="password" class="form-control" @bind="_token" @bind:event="oninput"
                            @onkeydown="OnKeyDown" placeholder="github_pat_xxxxxxxxxxxx" />
+                    <div class="form-text">
+                        Use a <strong>fine-grained</strong> token (starts with <code>github_pat_</code>) scoped to the data repository only.
+                    </div>
                 </div>
 
                 <button class="btn btn-primary w-100" @onclick="ValidateAndSave" disabled="@_validating">
@@ -45,6 +52,7 @@
 @code {
     private string _token = "";
     private string? _error;
+    private string? _warning;
     private string? _success;
     private bool _validating;
 
@@ -63,6 +71,7 @@
     private async Task ValidateAndSave()
     {
         _error = null;
+        _warning = null;
         _success = null;
 
         if (string.IsNullOrWhiteSpace(_token))
@@ -76,7 +85,8 @@
         {
             await GitHub.SaveConfigAsync(new GitHubConfig { Token = _token.Trim() });
 
-            var (ok, error) = await GitHub.ValidateAccessAsync();
+            // WEB-002: Validation now returns a warning for classic PATs
+            var (ok, error, warning) = await GitHub.ValidateAccessAsync();
             if (!ok)
             {
                 _error = error;
@@ -84,13 +94,26 @@
                 return;
             }
 
+            _warning = warning;
             _success = "Connected.";
-            await Task.Delay(500);
+
+            // If there's a warning (classic PAT), let the user see it before navigating
+            if (warning != null)
+            {
+                StateHasChanged();
+                await Task.Delay(3000);
+            }
+            else
+            {
+                await Task.Delay(500);
+            }
+
             await JS.InvokeVoidAsync("navigateToBase");
         }
-        catch (Exception ex)
+        catch
         {
-            _error = $"Connection failed: {ex.Message}";
+            // WEB-008: Generic error message
+            _error = "Unable to connect. Check your token and try again.";
             await GitHub.ClearConfigAsync();
         }
         finally
