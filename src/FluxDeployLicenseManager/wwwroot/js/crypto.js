@@ -1,5 +1,5 @@
-// RSA PKCS1-v1_5 SHA-256 signing/verification via Web Crypto API
-// Compatible with .NET's RSA.SignData(data, SHA256, Pkcs1)
+// ECDSA P-256 SHA-256 signing/verification via Web Crypto API
+// Compatible with .NET's ECDsa.SignData(data, SHA256, IeeeP1363FixedFieldConcatenation)
 
 "use strict";
 
@@ -14,7 +14,6 @@ function pemToArrayBuffer(pem) {
     return bytes.buffer;
 }
 
-// WEB-007: Safe ArrayBuffer to base64 conversion (no spread operator)
 function arrayBufferToBase64(buffer) {
     const bytes = new Uint8Array(buffer);
     let binary = '';
@@ -30,59 +29,55 @@ function arrayBufferToPem(buffer, label) {
     return '-----BEGIN ' + label + '-----\n' + lines.join('\n') + '\n-----END ' + label + '-----';
 }
 
-const rsaAlgorithm = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" };
+const ecdsaAlgorithm = { name: "ECDSA", namedCurve: "P-256" };
+const ecdsaSignParams = { name: "ECDSA", hash: "SHA-256" };
 
-// WEB-006: Cache imported CryptoKey objects to avoid re-transmitting PEM on every operation
 let _cachedPrivateKey = null;
 let _cachedPrivateKeyHash = null;
 let _cachedPublicKey = null;
 let _cachedPublicKeyHash = null;
 
-// Simple hash for cache invalidation (not crypto - just for detecting PEM changes)
 async function hashPem(pem) {
     const data = new TextEncoder().encode(pem);
     const hash = await crypto.subtle.digest('SHA-256', data);
     return arrayBufferToBase64(hash);
 }
 
-window.rsaCrypto = {
-    // Import and cache a private key. Returns true on success.
+window.ecdsaCrypto = {
     importPrivateKey: async function (privateKeyPem) {
         const h = await hashPem(privateKeyPem);
         if (h === _cachedPrivateKeyHash && _cachedPrivateKey) return true;
         const keyData = pemToArrayBuffer(privateKeyPem);
-        _cachedPrivateKey = await crypto.subtle.importKey("pkcs8", keyData, rsaAlgorithm, false, ["sign"]);
+        _cachedPrivateKey = await crypto.subtle.importKey("pkcs8", keyData, ecdsaAlgorithm, false, ["sign"]);
         _cachedPrivateKeyHash = h;
         return true;
     },
 
-    // Import and cache a public key. Returns true on success.
     importPublicKey: async function (publicKeyPem) {
         const h = await hashPem(publicKeyPem);
         if (h === _cachedPublicKeyHash && _cachedPublicKey) return true;
         const keyData = pemToArrayBuffer(publicKeyPem);
-        _cachedPublicKey = await crypto.subtle.importKey("spki", keyData, rsaAlgorithm, false, ["verify"]);
+        _cachedPublicKey = await crypto.subtle.importKey("spki", keyData, ecdsaAlgorithm, false, ["verify"]);
         _cachedPublicKeyHash = h;
         return true;
     },
 
-    // Sign data using the cached private key. importPrivateKey must be called first.
+    // Sign data. Returns base64-encoded signature (IEEE P1363 format = 64 bytes for P-256).
     sign: async function (dataBase64) {
         if (!_cachedPrivateKey) throw new Error("Private key not imported");
         const data = Uint8Array.from(atob(dataBase64), c => c.charCodeAt(0));
-        const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", _cachedPrivateKey, data);
+        const signature = await crypto.subtle.sign(ecdsaSignParams, _cachedPrivateKey, data);
         return arrayBufferToBase64(signature);
     },
 
-    // Verify signature using the cached public key. importPublicKey must be called first.
+    // Verify signature.
     verify: async function (dataBase64, signatureBase64) {
         if (!_cachedPublicKey) throw new Error("Public key not imported");
         const data = Uint8Array.from(atob(dataBase64), c => c.charCodeAt(0));
         const signature = Uint8Array.from(atob(signatureBase64), c => c.charCodeAt(0));
-        return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", _cachedPublicKey, signature, data);
+        return await crypto.subtle.verify(ecdsaSignParams, _cachedPublicKey, signature, data);
     },
 
-    // Clear cached keys (call on session end)
     clearKeys: function () {
         _cachedPrivateKey = null;
         _cachedPrivateKeyHash = null;
@@ -91,10 +86,7 @@ window.rsaCrypto = {
     },
 
     generateKeyPair: async function () {
-        const keyPair = await crypto.subtle.generateKey(
-            { name: "RSASSA-PKCS1-v1_5", modulusLength: 4096, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
-            true, ["sign", "verify"]
-        );
+        const keyPair = await crypto.subtle.generateKey(ecdsaAlgorithm, true, ["sign", "verify"]);
         const privBytes = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
         const pubBytes = await crypto.subtle.exportKey("spki", keyPair.publicKey);
         return {
@@ -116,7 +108,6 @@ window.downloadTextFile = function (filename, content) {
     URL.revokeObjectURL(url);
 };
 
-// WEB-019: Use hardcoded relative path instead of document.baseURI
 window.navigateToBase = function () {
     window.location.href = document.querySelector('base').getAttribute('href') || '/';
 };

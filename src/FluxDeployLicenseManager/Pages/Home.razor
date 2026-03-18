@@ -173,12 +173,12 @@ else
                         <div class="row mb-3">
                             <div class="col-md-6">
                                 <label class="form-label">Max Relay Sites</label>
-                                <input type="number" class="form-control" @bind="_maxRelays" min="0" max="10000" />
+                                <input type="number" class="form-control" @bind="_maxRelays" min="0" max="255" />
                                 <div class="form-text">0 = unlimited</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Max Recipes</label>
-                                <input type="number" class="form-control" @bind="_maxRecipes" min="0" max="10000" />
+                                <input type="number" class="form-control" @bind="_maxRecipes" min="0" max="255" />
                                 <div class="form-text">0 = unlimited</div>
                             </div>
                         </div>
@@ -565,14 +565,12 @@ else
                                 }
                                 <table class="table table-sm mt-3 mb-0">
                                     <tbody>
-                                        <tr><td class="text-body-secondary" style="width:130px;">License ID</td><td><code>@r.Payload.lid</code></td></tr>
-                                        <tr><td class="text-body-secondary">Organization</td><td>@r.Payload.org</td></tr>
-                                        <tr><td class="text-body-secondary">Type</td><td>@r.Payload.type</td></tr>
-                                        <tr><td class="text-body-secondary">Issued</td><td>@r.Payload.issued</td></tr>
-                                        <tr><td class="text-body-secondary">Expires</td><td>@(r.Payload.expires ?? "Never")</td></tr>
-                                        <tr><td class="text-body-secondary">Max Relays</td><td>@(r.Payload.maxRelays == 0 ? "Unlimited" : r.Payload.maxRelays.ToString())</td></tr>
-                                        <tr><td class="text-body-secondary">Max Recipes</td><td>@(r.Payload.maxRecipes == 0 ? "Unlimited" : r.Payload.maxRecipes.ToString())</td></tr>
-                                        <tr><td class="text-body-secondary">Features</td><td>@(r.Payload.features.Length == 0 ? "All" : string.Join(", ", r.Payload.features))</td></tr>
+                                        <tr><td class="text-body-secondary" style="width:130px;">License ID</td><td><code>@r.Payload.LicenseId</code></td></tr>
+                                        <tr><td class="text-body-secondary">Type</td><td>@r.Payload.Type</td></tr>
+                                        <tr><td class="text-body-secondary">Expires</td><td>@(r.Payload.ExpiresAt?.ToString("yyyy-MM-dd") ?? "Never")</td></tr>
+                                        <tr><td class="text-body-secondary">Max Relays</td><td>@(r.Payload.MaxRelays == 0 ? "Unlimited" : r.Payload.MaxRelays.ToString())</td></tr>
+                                        <tr><td class="text-body-secondary">Max Recipes</td><td>@(r.Payload.MaxRecipes == 0 ? "Unlimited" : r.Payload.MaxRecipes.ToString())</td></tr>
+                                        <tr><td class="text-body-secondary">Features</td><td>@(r.Payload.Features.Length == 0 ? "All" : string.Join(", ", r.Payload.Features))</td></tr>
                                     </tbody>
                                 </table>
                             }
@@ -675,9 +673,9 @@ else
 
         <div class="card mt-4">
             <div class="card-body">
-                <h5 class="card-title mb-3">Generate New RSA-4096 Key Pair</h5>
+                <h5 class="card-title mb-3">Generate New ECDSA P-256 Key Pair</h5>
                 <p class="text-body-secondary small">
-                    Generates a new RSA-4096 key pair in the browser. Both files will be downloaded automatically.
+                    Generates a new ECDSA P-256 key pair in the browser. Both files will be downloaded automatically.
                     Store the private key securely.
                 </p>
 
@@ -694,7 +692,7 @@ else
                     @if (_generatingKeyPair)
                     {
                         <span class="spinner-border spinner-border-sm me-1"></span>
-                        <span>Generating RSA-4096 (this takes a moment)...</span>
+                        <span>Generating ECDSA P-256...</span>
                     }
                     else
                     {
@@ -720,7 +718,7 @@ else
             catch
             {
                 _privateKeyLoaded = false;
-                _keyError = "Invalid private key file. Ensure it is a PEM-encoded RSA private key.";
+                _keyError = "Invalid private key file. Ensure it is a PEM-encoded ECDSA P-256 private key.";
             }
         }
     }
@@ -738,7 +736,7 @@ else
             catch
             {
                 _publicKeyLoaded = false;
-                _keyError = "Invalid public key file. Ensure it is a PEM-encoded RSA public key.";
+                _keyError = "Invalid public key file. Ensure it is a PEM-encoded ECDSA P-256 public key.";
             }
         }
     }
@@ -763,7 +761,7 @@ else
             await JS.InvokeVoidAsync("downloadTextFile", "fluxdeploy-license-private.pem", priv);
             await JS.InvokeVoidAsync("downloadTextFile", "fluxdeploy-license-public.pem", pub);
 
-            _keyMessage = "RSA-4096 key pair generated and downloaded. Store the private key securely.";
+            _keyMessage = "ECDSA P-256 key pair generated and downloaded. Store the private key securely.";
         }
         catch
         {

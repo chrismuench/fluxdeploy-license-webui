@@ -1,19 +1,17 @@
-using System.Text.Json.Serialization;
-
 namespace FluxDeployLicenseManager.Models;
 
+/// <summary>
+/// Decoded compact license key payload (6 bytes).
+/// Matches the FluxDeploy server's LicenseService format.
+/// </summary>
 public class LicensePayload
 {
-    public string lid { get; set; } = "";
-    public string org { get; set; } = "";
-    public string type { get; set; } = "time";
-    public string issued { get; set; } = "";
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? expires { get; set; }
-
-    public int maxRelays { get; set; }
-    public int maxRecipes { get; set; }
-    public string[] features { get; set; } = [];
-    public int ver { get; set; } = 1;
+    public string LicenseId { get; set; } = "";
+    public ushort SequenceId { get; set; }
+    public string Type { get; set; } = "time";
+    public DateTime? ExpiresAt { get; set; }
+    public int MaxRelays { get; set; }
+    public int MaxRecipes { get; set; }
+    public string[] Features { get; set; } = [];
+    public int Version { get; set; }
 }
