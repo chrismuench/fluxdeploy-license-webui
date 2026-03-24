@@ -193,6 +193,64 @@ public class GitHubStorageService
         }
     }
 
+    /// <summary>Read a text file from the GitHub repo. Returns null if not found.</summary>
+    public async Task<string?> ReadFileAsync(string filePath)
+    {
+        if (Config == null) return null;
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get,
+                $"repos/{RepoPath}/contents/{filePath}");
+            AddHeaders(request);
+            var response = await _http.SendAsync(request);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var content = await response.Content.ReadFromJsonAsync<GitHubFileResponse>();
+            if (content?.Content == null) return null;
+            return Encoding.UTF8.GetString(Convert.FromBase64String(content.Content.Replace("\n", "")));
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Write a text file to the GitHub repo (create or update).</summary>
+    public async Task WriteFileAsync(string filePath, string content, string commitMessage)
+    {
+        if (Config == null) throw new InvalidOperationException("GitHub not configured");
+
+        // Get existing SHA if file exists
+        string? sha = null;
+        try
+        {
+            var getRequest = new HttpRequestMessage(HttpMethod.Get,
+                $"repos/{RepoPath}/contents/{filePath}");
+            AddHeaders(getRequest);
+            var getResponse = await _http.SendAsync(getRequest);
+            if (getResponse.IsSuccessStatusCode)
+            {
+                var existing = await getResponse.Content.ReadFromJsonAsync<GitHubFileResponse>();
+                sha = existing?.Sha;
+            }
+        }
+        catch { /* file doesn't exist yet */ }
+
+        var body = new Dictionary<string, string>
+        {
+            ["message"] = commitMessage,
+            ["content"] = Convert.ToBase64String(Encoding.UTF8.GetBytes(content))
+        };
+        if (sha != null) body["sha"] = sha;
+
+        var request = new HttpRequestMessage(HttpMethod.Put,
+            $"repos/{RepoPath}/contents/{filePath}");
+        AddHeaders(request);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+        var response = await _http.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException("Failed to save file to GitHub.");
+    }
+
     private void AddHeaders(HttpRequestMessage request)
     {
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Config!.Token);

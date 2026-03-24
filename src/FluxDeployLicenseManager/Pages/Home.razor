@@ -95,8 +95,37 @@ else
             Nav.NavigateTo(Nav.BaseUri + "setup");
             return;
         }
+
+        // Auto-load signing keys from GitHub repo
+        await TryAutoLoadKeysAsync();
+
         _ready = true;
         await LoadTabData();
+    }
+
+    private async Task TryAutoLoadKeysAsync()
+    {
+        try
+        {
+            var privPem = await GitHub.ReadFileAsync("keys/private.pem");
+            if (!string.IsNullOrEmpty(privPem))
+            {
+                await Crypto.ImportPrivateKeyAsync(privPem);
+                _privateKeyLoaded = true;
+            }
+        }
+        catch { /* key not available */ }
+
+        try
+        {
+            var pubPem = await GitHub.ReadFileAsync("keys/public.pem");
+            if (!string.IsNullOrEmpty(pubPem))
+            {
+                await Crypto.ImportPublicKeyAsync(pubPem);
+                _publicKeyLoaded = true;
+            }
+        }
+        catch { /* key not available */ }
     }
 
     protected override async Task OnParametersSetAsync()
@@ -765,7 +794,7 @@ else
         </div>
     };
 
-    // WEB-006: Import key into SubtleCrypto cache on file load
+    // WEB-006: Import key into SubtleCrypto cache on file load, then persist to GitHub
     private async Task OnPrivateKeyFileChanged()
     {
         var content = await JS.InvokeAsync<string?>("readFileText", "privateKeyFile");
@@ -775,6 +804,8 @@ else
             {
                 await Crypto.ImportPrivateKeyAsync(content);
                 _privateKeyLoaded = true;
+                await GitHub.WriteFileAsync("keys/private.pem", content, "Update private key");
+                _keyMessage = "Private key loaded and saved to GitHub.";
             }
             catch
             {
@@ -793,6 +824,8 @@ else
             {
                 await Crypto.ImportPublicKeyAsync(content);
                 _publicKeyLoaded = true;
+                await GitHub.WriteFileAsync("keys/public.pem", content, "Update public key");
+                _keyMessage = "Public key loaded and saved to GitHub.";
             }
             catch
             {
@@ -802,10 +835,26 @@ else
         }
     }
 
+    private bool _confirmKeyGenerate;
+
     private async Task OnGenerateKeyPair()
     {
         _keyError = null;
         _keyMessage = null;
+
+        // Check if keys already exist in GitHub — warn before overwriting
+        if (!_confirmKeyGenerate)
+        {
+            var existingKey = await GitHub.ReadFileAsync("keys/private.pem");
+            if (!string.IsNullOrEmpty(existingKey))
+            {
+                _confirmKeyGenerate = true;
+                _keyError = "A key pair already exists. Generating a new pair will INVALIDATE ALL previously issued licenses. Click Generate again to confirm.";
+                return;
+            }
+        }
+        _confirmKeyGenerate = false;
+
         _generatingKeyPair = true;
         StateHasChanged();
 
@@ -819,14 +868,17 @@ else
             _privateKeyLoaded = true;
             _publicKeyLoaded = true;
 
+            // Save to GitHub for auto-load on next session
+            await GitHub.WriteFileAsync("keys/private.pem", priv, "Generate new ECDSA P-256 key pair");
+            await GitHub.WriteFileAsync("keys/public.pem", pub, "Generate new ECDSA P-256 key pair (public)");
+
             await JS.InvokeVoidAsync("downloadTextFile", "fluxdeploy-license-private.pem", priv);
             await JS.InvokeVoidAsync("downloadTextFile", "fluxdeploy-license-public.pem", pub);
 
-            _keyMessage = "ECDSA P-256 key pair generated and downloaded. Store the private key securely.";
+            _keyMessage = "ECDSA P-256 key pair generated, saved to GitHub, and downloaded.";
         }
         catch
         {
-            // WEB-008: Generic error
             _keyError = "Key generation failed. Please try again.";
         }
         finally
