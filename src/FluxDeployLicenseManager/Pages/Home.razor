@@ -421,6 +421,14 @@ else
                                                     Actions
                                                 </button>
                                                 <ul class="dropdown-menu dropdown-menu-end">
+                                                    @if (!string.IsNullOrEmpty(lic.LicenseKey))
+                                                    {
+                                                        <li>
+                                                            <button class="dropdown-item" @onclick="@(() => OpenViewKey(lic))">
+                                                                <i class="bi bi-key me-2"></i>View Key
+                                                            </button>
+                                                        </li>
+                                                    }
                                                     <li>
                                                         <button class="dropdown-item" @onclick="@(() => OpenEditNotes(lic))">
                                                             <i class="bi bi-sticky me-2"></i>Notes
@@ -442,6 +450,34 @@ else
                 }
             </div>
         </div>
+
+        @if (_viewKeyLicense != null)
+        {
+            <div class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">License Key — @_viewKeyLicense.LicenseId</h5>
+                            <button type="button" class="btn-close" @onclick="@(() => _viewKeyLicense = null)"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="small text-body-secondary mb-2">@_viewKeyLicense.OrganizationName</p>
+                            <div class="position-relative">
+                                <pre class="bg-dark text-light p-3 rounded" style="font-size: 0.75rem; word-break: break-all; white-space: pre-wrap;">@_viewKeyLicense.LicenseKey</pre>
+                                <button class="btn btn-sm btn-outline-light position-absolute top-0 end-0 m-2"
+                                        @onclick="@(() => JS.InvokeVoidAsync("navigator.clipboard.writeText", _viewKeyLicense.LicenseKey))"
+                                        title="Copy to clipboard">
+                                    <i class="bi bi-clipboard"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" @onclick="@(() => _viewKeyLicense = null)">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
 
         @if (_editingLicense != null)
         {
@@ -488,6 +524,11 @@ else
         };
         return filtered.ToList();
     }
+
+    // View key modal state
+    private IssuedLicenseRecord? _viewKeyLicense;
+
+    private void OpenViewKey(IssuedLicenseRecord lic) => _viewKeyLicense = lic;
 
     // Edit notes modal state
     private IssuedLicenseRecord? _editingLicense;

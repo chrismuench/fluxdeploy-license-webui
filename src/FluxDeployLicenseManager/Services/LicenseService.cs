@@ -128,6 +128,7 @@ public partial class LicenseService
             MaxRecipes = maxRecipes,
             Features = features.Length > 0 ? features : null,
             KeyHash = ComputeKeyHash(key),
+            LicenseKey = key,
             Notes = notes,
             CreatedAt = DateTime.UtcNow
         };
