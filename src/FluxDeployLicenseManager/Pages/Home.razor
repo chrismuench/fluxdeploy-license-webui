@@ -415,11 +415,24 @@ else
                                             }
                                         </td>
                                         <td>
-                                            <!-- WEB-016: No copy key button - key is not stored -->
-                                            <button class="btn btn-sm btn-outline-secondary" title="Edit notes"
-                                                    @onclick="@(() => OpenEditNotes(lic))">
-                                                <i class="bi bi-pencil"></i>
-                                            </button>
+                                            <div class="dropdown">
+                                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
+                                                        data-bs-toggle="dropdown" aria-expanded="false">
+                                                    Actions
+                                                </button>
+                                                <ul class="dropdown-menu dropdown-menu-end">
+                                                    <li>
+                                                        <button class="dropdown-item" @onclick="@(() => OpenEditNotes(lic))">
+                                                            <i class="bi bi-sticky me-2"></i>Notes
+                                                        </button>
+                                                    </li>
+                                                    <li>
+                                                        <button class="dropdown-item" @onclick="@(() => CopyLicenseId(lic.LicenseId))">
+                                                            <i class="bi bi-clipboard me-2"></i>Copy ID
+                                                        </button>
+                                                    </li>
+                                                </ul>
+                                            </div>
                                         </td>
                                     </tr>
                                 }
@@ -436,7 +449,7 @@ else
                 <div class="modal-dialog">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <h5 class="modal-title">Edit Notes - @_editingLicense.LicenseId</h5>
+                            <h5 class="modal-title">Notes — @_editingLicense.LicenseId</h5>
                             <button type="button" class="btn-close" @onclick="CancelEditNotes"></button>
                         </div>
                         <div class="modal-body">
@@ -505,6 +518,11 @@ else
     }
 
     private void CancelEditNotes() => _editingLicense = null;
+
+    private async Task CopyLicenseId(string licenseId)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", licenseId);
+    }
 
     private async Task RefreshLicenses()
     {
